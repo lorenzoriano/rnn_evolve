@@ -1,0 +1,83 @@
+from pyevolve import GSimpleGA
+from pyevolve import G1DList
+from pyevolve import Selectors
+from pyevolve import Initializators, Mutators,  Consts
+from pyevolve import DBAdapters
+from pyevolve import Crossovers
+
+import numpy as np
+import pickle
+
+import crnn
+import pyublas
+import crnn.libcartpole
+
+test_net = crnn.libcartpole.test_net
+
+nsensors = 2
+def chromosome_convert(chromosome):
+    input_size = chromosome.getParam("input_size")
+    output_size = chromosome.getParam("output_size")
+    hidden_size = chromosome.getParam("hidden_size")
+    bias_size = hidden_size + output_size
+
+    net = crnn.CRNN(hidden_size, input_size, output_size)
+    array_cr = np.array(chromosome.genomeList[:-bias_size]).reshape( (net.size-net.input_size, net.size) )
+    array_bias = np.array(chromosome.genomeList[len(chromosome.genomeList) - bias_size:])
+    net.W[net.input_size:, :] = array_cr
+    net.bias[net.input_size:] = array_bias
+    return net
+
+def calculate_fitness(net):
+    return test_net(net)
+
+def eval_func(chromosome,  **args):
+    net = chromosome_convert(chromosome)
+    return calculate_fitness(net)
+
+# Genome instance
+input_size = nsensors
+hidden_size = 3
+output_size = 1
+bias_size = hidden_size + output_size
+total_size = input_size + hidden_size + output_size
+genome_size = (total_size - input_size)*total_size + bias_size
+
+genome = G1DList.G1DList(genome_size)
+genome.setParams(rangemin=-4, rangemax=4)
+genome.setParams(input_size=input_size,  hidden_size=hidden_size,  output_size=output_size)
+genome.setParams(gauss_mu=0., gauss_sigma=0.1)
+
+genome.initializator.set(Initializators.G1DListInitializatorReal)
+genome.mutator.set(Mutators.G1DListMutatorRealGaussian)
+genome.evaluator.set(eval_func)
+genome.crossover.set(Crossovers.G1DListCrossoverTwoPoint)
+
+ga = GSimpleGA.GSimpleGA(genome)
+ga.selector.set(Selectors.GRouletteWheel)
+#print "STOPPING ELITISM"
+ga.setElitism(True)
+ga.setElitismReplacement(20)
+#ga.selector.set(Selectors.GRankSelector)
+ga.setGenerations(2000)
+ga.setPopulationSize(500)
+ga.setCrossoverRate(0.2)
+ga.setMutationRate(0.8)
+ga.setMinimax(Consts.minimaxType["maximize"])
+#sqlite_adapter = DBAdapters.DBSQLite(dbname="/home/pezzotto/Logs/PredatorPrey/evolution.db", identify="pippo")
+#ga.setDBAdapter(sqlite_adapter)
+
+# Do the evolution
+ga.evolve(freq_stats = 10)
+
+# Best individual
+best = ga.bestIndividual()
+net = chromosome_convert(best)
+#net.to_dot("/home/pezzotto/Logs/RobotFollowing/net.dot")
+
+pickle_file = open("/home/pezzotto/tmp/bestnet.txt", "w")
+print "Pickling"
+pickle.dump(net,  pickle_file, 2)
+
+
+print "Done"
